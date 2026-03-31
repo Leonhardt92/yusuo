@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yusuo embedding generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero">
+      <p class="eyebrow">yusuo</p>
+      <div class="page-head">
+        <div>
+          <h1>Embedding Generator</h1>
+          <p class="hero-copy">
+            填入词条、拼音和释义，浏览器会用 <code>Xenova/bge-small-zh-v1.5</code>
+            直接生成可写回 CSV 的 embedding。
+          </p>
+        </div>
+        <a class="text-link" href="./index.html">返回搜索页</a>
+      </div>
+
+      <div class="search-panel form-panel">
+        <label class="field field-full">
+          <span>Paste Existing CSV Row</span>
+          <textarea id="csvRowInput" rows="5" placeholder="把现有 CSV 的一整行贴到这里，可自动解析出各字段"></textarea>
+        </label>
+
+        <div class="generator-actions">
+          <button id="parseCsvRowButton" type="button">Parse CSV Row</button>
+        </div>
+
+        <div class="generator-grid">
+          <label class="field">
+            <span>headword</span>
+            <input id="headwordInput" type="text" placeholder="例如：阿姨">
+          </label>
+          <label class="field">
+            <span>pinyin_tone</span>
+            <input id="pinyinToneInput" type="text" placeholder="例如：āyí">
+          </label>
+          <label class="field">
+            <span>pinyin_plain</span>
+            <input id="pinyinPlainInput" type="text" placeholder="例如：ayi">
+          </label>
+          <label class="field field-full">
+            <span>definition</span>
+            <textarea id="definitionInput" rows="6" placeholder="输入释义内容"></textarea>
+          </label>
+        </div>
+
+        <div class="generator-actions">
+          <button id="generateButton" type="button">Generate Embedding</button>
+          <button id="suggestPinyinButton" type="button" class="ghost-button">Suggest Pinyin</button>
+          <button id="fillSampleButton" type="button" class="ghost-button">Fill Sample</button>
+          <button id="clearFormButton" type="button" class="ghost-button">Clear</button>
+        </div>
+
+        <div class="semantic-panel">
+          <div class="semantic-copy">
+            <strong>Pinyin Suggestion</strong>
+            <p id="pinyinSuggestionStatus">输入中文词条后，可以自动补出拼音建议。</p>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <span id="generatorStatus">等待输入数据。</span>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-bar">
+            <div id="generatorProgressFill" class="progress-fill"></div>
+          </div>
+          <span id="generatorProgressText">0%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="results-panel">
+      <div class="results-head">
+        <h2>Output</h2>
+        <p id="semanticTextPreview">尚未生成。</p>
+      </div>
+
+      <div class="output-stack">
+        <label class="field field-full">
+          <span>Embedding JSON</span>
+          <textarea id="embeddingOutput" rows="10" readonly placeholder="生成后会出现在这里"></textarea>
+        </label>
+
+        <div class="generator-actions">
+          <button id="copyEmbeddingButton" type="button">Copy Embedding</button>
+        </div>
+
+        <label class="field field-full">
+          <span>CSV Row Preview</span>
+          <textarea id="csvPreviewOutput" rows="6" readonly placeholder="生成后会出现可直接贴回 CSV 的一整行"></textarea>
+        </label>
+
+        <div class="generator-actions">
+          <button id="copyCsvRowButton" type="button">Copy CSV Row</button>
+          <a class="text-link" href="https://github.dev/Leonhardt92/yusuo" target="_blank" rel="noreferrer">Open In github.dev</a>
+        </div>
+
+        <div class="search-panel form-panel">
+          <div class="results-head">
+            <h2>Batch Export</h2>
+            <p class="hero-copy mini-note">使用和本页单条生成完全相同的前端代码，分段读取 CSV 并导出带 embedding 的结果。为避免浏览器内存压力，默认一次只处理 1000 条。</p>
+          </div>
+
+          <div class="generator-actions">
+            <button id="presetYusuoButton" type="button" class="ghost-button">Use ci.csv</button>
+            <button id="presetIdiomButton" type="button" class="ghost-button">Use idiom.csv</button>
+          </div>
+
+          <div class="generator-grid">
+            <label class="field">
+              <span>Source CSV</span>
+              <input id="batchSourceInput" type="text" value="./data/ci.csv">
+            </label>
+            <label class="field">
+              <span>Output Filename</span>
+              <input id="batchOutputNameInput" type="text" value="ci.with_embeddings.csv">
+            </label>
+            <label class="field">
+              <span>Start Row</span>
+              <input id="batchStartRowInput" type="number" min="1" value="1">
+            </label>
+            <label class="field">
+              <span>Limit For Test</span>
+              <input id="batchLimitInput" type="number" min="1" value="1000" placeholder="建议 1000">
+            </label>
+          </div>
+
+          <div class="generator-actions">
+            <button id="exportBatchButton" type="button">Export CSV With Embeddings</button>
+            <button id="exportNextBatchButton" type="button" class="ghost-button">Export And Jump Next</button>
+            <button id="exportFullBatchButton" type="button" class="ghost-button">Write Remaining To One CSV</button>
+          </div>
+
+          <div class="toolbar">
+            <span id="batchStatus">等待批量导出。</span>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="progress-bar">
+              <div id="batchProgressFill" class="progress-fill"></div>
+            </div>
+            <span id="batchProgressText">0%</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.28.0/dist/index.js"></script>
+  <script src="./assets/embedding.js?v=20260331-5"></script>
+</body>
+</html>

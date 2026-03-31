@@ -1,0 +1,13 @@
+{
+  "model": "Xenova/bge-small-zh-v1.5",
+  "dimension": 512,
+  "count": 92993,
+  "meta": "yusuo.search.meta.json",
+  "embeddings": "yusuo.search.embeddings.bin",
+  "dtype": "float16",
+  "sources": [
+    "ci.with_embeddings.csv",
+    "idiom.with_embeddings.csv",
+    "yusuo.append.csv"
+  ]
+}
