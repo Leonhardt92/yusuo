@@ -15,11 +15,11 @@
       <p class="eyebrow">yusuo</p>
       <div class="page-head">
         <div>
-      <h1>yusuo</h1>
-      <p class="hero-copy">
-        支持关键词搜索和纯前端语义搜索。语义模式使用 <code>Xenova/bge-small-zh-v1.5</code>，
-        并读取搜索专用索引文件做相似度检索。
-      </p>
+          <h1>yusuo</h1>
+          <p class="hero-copy">
+            支持关键词搜索和纯前端语义搜索。语义模式使用 <code>Xenova/bge-small-zh-v1.5</code>，
+            并读取搜索专用索引文件做相似度检索。
+          </p>
         </div>
         <a class="text-link" href="./embedding.html">前往 Embedding 页面</a>
       </div>
@@ -51,6 +51,11 @@
           <div class="semantic-copy">
             <strong>语义搜索</strong>
             <p id="semanticStatus">正在检查搜索索引中的 embedding 数据。</p>
+          </div>
+          <div class="generator-actions">
+            <button id="clearEmbeddingCacheButton" type="button" class="ghost-button">
+              删除本地缓存
+            </button>
           </div>
         </div>
 
@@ -105,6 +110,6 @@
     </article>
   </template>
 
-  <script src="./assets/app.js?v=20260331-9"></script>
+  <script src="./assets/app.js?v=20260402-1"></script>
 </body>
 </html>

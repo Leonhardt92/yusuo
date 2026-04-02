@@ -1,9 +1,13 @@
 const MODEL_ID = "Xenova/bge-small-zh-v1.5";
 const PREVIEW_LIMIT = 200;
-const ASSET_VERSION = "20260331-7";
+const ASSET_VERSION = "20260402-2";
 const COMMON_PINYIN_CHARS = "āáǎà ōóǒò ēéěè īíǐì ūúǔù ü ǖǘǚǜ ê ńňǹ";
 const SEARCH_MANIFEST_PATH = "./data/search/yusuo.search.manifest.json";
 const APPEND_CSV_PATH = "./data/yusuo.append.csv";
+
+const SEARCH_ASSET_CACHE_NAME = "yusuo-search-asset-cache";
+const SEARCH_META_CACHE_VERSION = "20260402-2";
+const SEARCH_EMBEDDINGS_CACHE_VERSION = "20260402-2";
 
 const state = {
   rows: [],
@@ -41,6 +45,7 @@ const nextButton = document.querySelector("#nextButton");
 const pageInfo = document.querySelector("#pageInfo");
 const limitSelect = document.querySelector("#limitSelect");
 const copyPinyinCharsButton = document.querySelector("#copyPinyinCharsButton");
+const clearEmbeddingCacheButton = document.querySelector("#clearEmbeddingCacheButton");
 const resultsPanel = document.querySelector(".results-panel");
 
 function setProgress(percent, label = `${percent}%`) {
@@ -58,6 +63,103 @@ function setMode(mode) {
 function resolveManifestAssetPath(relativePath) {
   const manifestUrl = new URL(state.searchManifestPath, window.location.href);
   return new URL(relativePath, manifestUrl).toString();
+}
+
+function buildVersionedCacheUrl(url, version) {
+  const cacheUrl = new URL(url, window.location.href);
+  cacheUrl.searchParams.set("__local_cache_version__", version);
+  return cacheUrl.toString();
+}
+
+function getMetaCacheKey(url) {
+  return buildVersionedCacheUrl(url, SEARCH_META_CACHE_VERSION);
+}
+
+function getEmbeddingsCacheKey(url) {
+  return buildVersionedCacheUrl(url, SEARCH_EMBEDDINGS_CACHE_VERSION);
+}
+
+async function requestPersistentStorage() {
+  if (!navigator.storage?.persist) {
+    return false;
+  }
+
+  try {
+    const alreadyPersistent = navigator.storage.persisted
+      ? await navigator.storage.persisted()
+      : false;
+
+    if (alreadyPersistent) {
+      return true;
+    }
+
+    return await navigator.storage.persist();
+  } catch (error) {
+    console.warn("persist() failed:", error);
+    return false;
+  }
+}
+
+async function fetchCachedAssetOnce(url, cacheKey, responseType = "binary") {
+  if (!window.caches) {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`加载 ${url} 失败：${response.status}`);
+    }
+    return { response, fromCache: false, responseType };
+  }
+
+  await requestPersistentStorage();
+
+  const cache = await caches.open(SEARCH_ASSET_CACHE_NAME);
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    return { response: cached.clone(), fromCache: true, responseType };
+  }
+
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`加载 ${url} 失败：${response.status}`);
+  }
+
+  await cache.put(cacheKey, response.clone());
+  return { response, fromCache: false, responseType };
+}
+
+async function fetchCachedJsonOnce(url) {
+  return fetchCachedAssetOnce(url, getMetaCacheKey(url), "json");
+}
+
+async function fetchCachedBinaryOnce(url) {
+  return fetchCachedAssetOnce(url, getEmbeddingsCacheKey(url), "binary");
+}
+
+function resetMainEmbeddingVectors() {
+  const count = Math.min(state.embeddingCount, state.rows.length);
+  for (let index = 0; index < count; index += 1) {
+    state.rows[index].embeddingVector = null;
+  }
+  state.embeddingsLoaded = false;
+  inspectSemanticState();
+}
+
+async function clearCachedSearchAssets() {
+  if (!window.caches) {
+    return;
+  }
+
+  const cache = await caches.open(SEARCH_ASSET_CACHE_NAME);
+
+  const embeddingsPath = state.searchManifest?.embeddings || "./data/search/yusuo.search.embeddings.bin";
+  const metaPath = state.searchManifest?.meta || "./data/search/yusuo.search.meta.json";
+
+  const embeddingsUrl = resolveManifestAssetPath(embeddingsPath);
+  const metaUrl = resolveManifestAssetPath(metaPath);
+
+  await Promise.all([
+    cache.delete(getEmbeddingsCacheKey(embeddingsUrl)),
+    cache.delete(getMetaCacheKey(metaUrl)),
+  ]);
 }
 
 function decodeFloat16Bits(bits) {
@@ -130,12 +232,6 @@ function scrollResultsToTop() {
 async function copyText(text, successMessage) {
   await navigator.clipboard.writeText(text);
   statusText.textContent = successMessage;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
 }
 
 function parseCsvLine(line) {
@@ -264,7 +360,7 @@ function createWorker() {
   if (state.worker) {
     return state.worker;
   }
-    state.worker = new Worker(`./assets/worker.js?v=${ASSET_VERSION}`, { type: "module" });
+  state.worker = new Worker(`./assets/worker.js?v=${ASSET_VERSION}`, { type: "module" });
   return state.worker;
 }
 
@@ -483,13 +579,18 @@ async function loadSearchMeta() {
   state.embeddingCount = Number(state.searchManifest.count || 0);
   state.embeddingDtype = state.searchManifest.dtype || "float32";
 
-  const metaResponse = await fetch(resolveManifestAssetPath(state.searchManifest.meta), { cache: "no-store" });
-  if (!metaResponse.ok) {
-    throw new Error(`加载 ${state.searchManifest.meta} 失败：${metaResponse.status}`);
-  }
+  const metaUrl = resolveManifestAssetPath(state.searchManifest.meta);
 
-  statusText.textContent = "正在读取搜索元数据…";
-  setProgress(35, "meta");
+  statusText.textContent = "正在检查本地元数据缓存…";
+  setProgress(20, "meta-cache");
+
+  const { response: metaResponse, fromCache } = await fetchCachedJsonOnce(metaUrl);
+
+  statusText.textContent = fromCache
+    ? "正在从本地缓存读取搜索元数据…"
+    : "首次下载搜索元数据…";
+  setProgress(fromCache ? 35 : 30, fromCache ? "meta-cached" : "meta");
+
   const metaRows = await metaResponse.json();
   const baseRows = metaRows.map((row, index) => ({
     id: row.id ?? index,
@@ -499,6 +600,7 @@ async function loadSearchMeta() {
     definition: row.definition || "",
     embeddingVector: null,
   }));
+
   const appendRows = await loadAppendRows(baseRows.length);
   state.rows = baseRows.concat(appendRows);
   state.filtered = [...state.rows];
@@ -516,12 +618,17 @@ async function ensureEmbeddingsLoaded() {
     throw new Error("搜索索引清单不完整，无法加载 embedding 向量。");
   }
 
-  statusText.textContent = "正在读取语义向量文件…";
-  setProgress(15, "vectors");
-  const response = await fetch(resolveManifestAssetPath(state.searchManifest.embeddings), { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`加载 ${state.searchManifest.embeddings} 失败：${response.status}`);
-  }
+  const embeddingsUrl = resolveManifestAssetPath(state.searchManifest.embeddings);
+
+  statusText.textContent = "正在检查本地语义向量缓存…";
+  setProgress(10, "cache");
+
+  const { response, fromCache } = await fetchCachedBinaryOnce(embeddingsUrl);
+
+  statusText.textContent = fromCache
+    ? "正在从本地缓存读取语义向量…"
+    : "首次下载语义向量文件…";
+  setProgress(fromCache ? 40 : 15, fromCache ? "cached" : "vectors");
 
   const buffer = await response.arrayBuffer();
   const expectedLength = state.embeddingCount * state.embeddingDimension;
@@ -538,6 +645,11 @@ async function ensureEmbeddingsLoaded() {
 
   state.embeddingsLoaded = true;
   inspectSemanticState();
+
+  statusText.textContent = fromCache
+    ? `已从本地缓存加载 ${state.embeddingCount.toLocaleString()} 条 ${state.embeddingDtype.toUpperCase()} 向量。`
+    : `语义向量首次下载完成，后续刷新将直接优先使用本地缓存。`;
+  setProgress(100, fromCache ? "cached" : "done");
 }
 
 searchButton.addEventListener("click", () => {
@@ -565,6 +677,16 @@ copyPinyinCharsButton?.addEventListener("click", () => {
     console.error(error);
     statusText.textContent = "复制常用拼音字符失败。";
   });
+});
+
+clearEmbeddingCacheButton?.addEventListener("click", () => {
+  clearCachedSearchAssets()
+    .then(() => {
+      resetMainEmbeddingVectors();
+      statusText.textContent = "已删除本地语义缓存，下次会重新下载 meta.json 和 embeddings.bin。";
+      setProgress(0, "0%");
+    })
+    .catch(handleError);
 });
 
 keywordModeButton.addEventListener("click", () => {
